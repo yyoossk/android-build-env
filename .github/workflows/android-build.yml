@@ -1,0 +1,121 @@
+name: Android Build (reusable)
+
+# 他のリポジトリから呼び出して使う共通ビルド環境
+#   uses: <owner>/android-build-env/.github/workflows/android-build.yml@main
+
+on:
+  workflow_call:
+    inputs:
+      project-dir:
+        description: Gradle プロジェクトのディレクトリ（リポジトリ直下なら "."）
+        type: string
+        default: "."
+      gradle-task:
+        description: 実行する Gradle タスク
+        type: string
+        default: assembleDebug
+      java-version:
+        description: JDK のバージョン
+        type: string
+        default: "17"
+      ndk-version:
+        description: 入れる NDK のバージョン（空なら入れない）
+        type: string
+        default: ""
+      cmake-version:
+        description: 入れる CMake のバージョン（空なら入れない）
+        type: string
+        default: ""
+      gradle-version:
+        description: gradlew が無いときに使う Gradle のバージョン
+        type: string
+        default: "8.7"
+      submodules:
+        description: サブモジュールの取得（false / true / recursive）
+        type: string
+        default: recursive
+      apk-path:
+        description: 回収する APK のパス（glob）
+        type: string
+        default: "**/build/outputs/apk/**/*.apk"
+      artifact-name:
+        description: アップロードする Artifact の名前
+        type: string
+        default: apk
+    secrets:
+      KEYSTORE_BASE64:
+        description: 署名用キーストア（base64）。リリース署名するときだけ指定
+        required: false
+      KEYSTORE_PASSWORD:
+        required: false
+      KEY_ALIAS:
+        required: false
+      KEY_PASSWORD:
+        required: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: ${{ inputs.submodules }}
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ inputs.java-version }}
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install NDK / CMake
+        if: inputs.ndk-version != '' || inputs.cmake-version != ''
+        env:
+          NDK: ${{ inputs.ndk-version }}
+          CMAKE: ${{ inputs.cmake-version }}
+        run: |
+          pkgs=()
+          [ -n "$NDK" ] && pkgs+=("ndk;$NDK")
+          [ -n "$CMAKE" ] && pkgs+=("cmake;$CMAKE")
+          yes | sdkmanager "${pkgs[@]}" > /dev/null
+          if [ -n "$NDK" ]; then
+            echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/$NDK" >> "$GITHUB_ENV"
+          fi
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: ${{ inputs.gradle-version }}
+
+      - name: Prepare signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        if: env.KEYSTORE_BASE64 != ''
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          echo "SIGNING_STORE_FILE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+
+      - name: Build
+        working-directory: ${{ inputs.project-dir }}
+        env:
+          TASK: ${{ inputs.gradle-task }}
+          SIGNING_STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -f ./gradlew ]; then
+            chmod +x ./gradlew
+            ./gradlew $TASK --stacktrace
+          else
+            gradle $TASK --stacktrace
+          fi
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: ${{ inputs.apk-path }}
+          if-no-files-found: error
