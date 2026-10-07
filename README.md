@@ -75,3 +75,9 @@ jobs:
 - このリポジトリが **非公開** の場合、Settings → Actions → General →
   Access で「Accessible from repositories owned by the user」を有効にしてください。
   公開リポジトリなら設定は不要です。
+
+## 動作確認
+
+`sample/` に最小の Android アプリがあり、`main` に push するたびに
+`.github/workflows/self-test.yml` がこの共通環境でビルドします。
+Actions の **Self test** が緑なら、ビルド環境は正常に動いています。

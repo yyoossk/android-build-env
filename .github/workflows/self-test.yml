@@ -1,0 +1,15 @@
+name: Self test
+
+# 共通ビルド環境そのものが動くかを、sample/ の最小アプリで確認する
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  sample-apk:
+    uses: ./.github/workflows/android-build.yml
+    with:
+      project-dir: sample
+      artifact-name: sample-apk
